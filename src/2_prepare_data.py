@@ -5,6 +5,8 @@ import argparse
 from tqdm import tqdm
 from sklearn.impute import KNNImputer
 from utilities import *
+import warnings
+warnings.filterwarnings("ignore")
 
 # ----------------- Parse command-line arguments -----------------
 parser = argparse.ArgumentParser()
@@ -41,7 +43,7 @@ if DEPT == "ALL":
 else:
     df_adm1 = adms[adms["ADMISSION_TYPE"] == DEPT]
 
-df_lab1 = all_labs[all_labs["HADM_ID"].isin(df_adm1["HADM_ID"])]
+df_lab1 = all_labs[all_labs["HADM_ID"].isin(df_adm1["HADM_ID"])].copy()
 
 nlabs = all_labs["label"].nunique()
 gg = df_lab1.groupby(["HADM_ID", "label"]).size().reset_index().groupby("HADM_ID").size().sort_values(ascending=False)
@@ -58,26 +60,25 @@ df_lab1.to_csv(f"{dataset}/sub_adm_lab.csv")
 print("[Checkpoint] Filtered admissions and labs saved.")
 
 # ----------------- Time Series Discretisation -----------------
-sub_df_lab = df_lab1.copy()
-sub_df_lab["HADM_ID"] = sub_df_lab["HADM_ID"].astype(int)
-sub_df_lab["hour"] = sub_df_lab["hour"].astype(int)
-sub_df_lab.dropna(subset=["HADM_ID", "label", "hour", "VALUENUM"], inplace=True)
+df_lab1["HADM_ID"] = df_lab1["HADM_ID"].astype(int)
+df_lab1["hour"] = df_lab1["hour"].astype(int)
+df_lab1.dropna(subset=["HADM_ID", "label", "hour", "VALUENUM"], inplace=True)
 
 # Compute stats per lab label for normalisation
-label_stats = sub_df_lab.groupby("label")["VALUENUM"].agg(["mean", "std"]).rename(columns={"mean": "label_mean", "std": "label_std"})
-sub_df_lab = sub_df_lab.merge(label_stats, on="label")
+label_stats = df_lab1.groupby("label")["VALUENUM"].agg(["mean", "std"]).rename(columns={"mean": "label_mean", "std": "label_std"})
+df_lab1 = df_lab1.merge(label_stats, on="label")
 
 # Remove constant-valued lab labels
-sub_df_lab = sub_df_lab[sub_df_lab["label_std"] > 0]
+df_lab1 = df_lab1[df_lab1["label_std"] > 0]
 
 # Discretise by interval
-sub_df_lab["interval"] = (sub_df_lab["hour"] // interval) * interval
+df_lab1["interval"] = (df_lab1["hour"] // interval) * interval
 
 print("[Checkpoint] Discretising time series...")
 
 # Pivot time series
 df1 = (
-    sub_df_lab
+    df_lab1
     .groupby(["HADM_ID", "label", "label_mean", "label_std", "interval"])["VALUENUM"]
     .mean()
     .unstack(level=-1)
@@ -117,7 +118,7 @@ df_imputed.to_csv(f"{dataset}/{exp_name}/ts_imputed{interval_suffix}.csv")
 
 print("[Checkpoint] KNN-imputed time series saved.")
 
-features_df = compute_ts_metrics_window(sub_df_lab)
+features_df = compute_ts_metrics_window(df_lab1)
 features_df.set_index(["HADM_ID", "label"], inplace=True)
 features_df = features_df.unstack(level=-1)
 

@@ -4,6 +4,9 @@ import argparse
 import gc
 from tqdm import tqdm
 from utilities import *
+from sklearn.preprocessing import QuantileTransformer
+import warnings
+warnings.filterwarnings("ignore")
 
 # ----------------------- Parse command-line arguments -----------------------
 parser = argparse.ArgumentParser()
@@ -15,6 +18,8 @@ parser.add_argument("--computed", type=str, default="mean")  # imputed
 parser.add_argument("--MAX", type=int, default=5)
 parser.add_argument("--interval", type=int, default=1)
 parser.add_argument("--percentile", type=float, default=0.05)
+parser.add_argument("--pairs", type=str, default="matched")
+parser.add_argument("--features", type=str, default="measured")
 args = parser.parse_args()
 
 # ----------------------- Load parameters -----------------------
@@ -25,6 +30,8 @@ DEPT = args.dept
 TASK = args.task
 MAX = args.MAX
 interval = args.interval
+pairs = args.pairs
+features = args.features
 percentile = args.percentile
 exp_name = DEPT + "_" + TASK
 suffix = f"_p{int(percentile*100)}" if percentile != 0.05 else ""
@@ -58,52 +65,45 @@ filtered_pairs_df["tg_adm1"] = filtered_pairs_df["adm1"].map(task_dict)
 filtered_pairs_df["tg_adm2"] = filtered_pairs_df["adm2"].map(task_dict)
 
 # ----------------------- Select positive and similar-distance same-target pairs -----------------------
-pos_pairs = filtered_pairs_df[filtered_pairs_df["tg_adm1"] != filtered_pairs_df["tg_adm2"]]
-same_target_pairs = filtered_pairs_df[filtered_pairs_df["tg_adm1"] == filtered_pairs_df["tg_adm2"]]
+pos_pairs = filtered_pairs_df[filtered_pairs_df["tg_adm1"] != filtered_pairs_df["tg_adm2"]].sort_values("distance")
+same_target_pairs = filtered_pairs_df[filtered_pairs_df["tg_adm1"] == filtered_pairs_df["tg_adm2"]].sort_values("distance")
 
-sel_pos_pairs = select_pairs(pos_pairs, MAX)
-print(f"[Checkpoint] Selected {len(sel_pos_pairs)} positive pairs")
+min_d = pos_pairs["distance"].min()
+max_d = pos_pairs["distance"].max()
+same_target_pairs = same_target_pairs[(same_target_pairs["distance"] >= min_d) & (same_target_pairs["distance"] <= max_d)]
 
-# ----------------------- Match control pairs -----------------------
-selected_rows = []
-for _, row in tqdm(sel_pos_pairs.iterrows(), total=len(sel_pos_pairs), desc="Processing pairs"):
-    a1, a2 = row["adm1"], row["adm2"]
-    d = row["distance"]
-    epsilon = d * 0.1
-    t1, t2 = row["tg_adm1"], row["tg_adm2"]
 
-    same1 = same_target_pairs[
-        (((same_target_pairs["adm1"] == a1) & (same_target_pairs["tg_adm2"] == t1)) |
-         ((same_target_pairs["adm2"] == a1) & (same_target_pairs["tg_adm1"] == t1))) &
-        (np.abs(same_target_pairs["distance"] - d) <= epsilon)
-    ]
+if pairs == "matched":
+    sel_pos_pairs = select_pairs_fast(pos_pairs, MAX)
+    sel_pairs_df = select_matched_pairs_fast(sel_pos_pairs, same_target_pairs)
 
-    same2 = same_target_pairs[
-        (((same_target_pairs["adm1"] == a2) & (same_target_pairs["tg_adm2"] == t2)) |
-         ((same_target_pairs["adm2"] == a2) & (same_target_pairs["tg_adm1"] == t2))) &
-        (np.abs(same_target_pairs["distance"] - d) <= epsilon)
-    ]
+else:
+    pos_pairs = select_pairs_fast(pos_pairs, MAX)
+    pos_pairs["target"] = 1
 
-    if (not same1.empty) and (not same2.empty):
-        selected_rows.append(row)
-        idx1 = (same1["distance"] - d).abs().idxmin()
-        selected_rows.append(same1.loc[idx1])
-        same_target_pairs = same_target_pairs.drop(idx1)
-        idx2 = (same2["distance"] - d).abs().idxmin()
-        selected_rows.append(same2.loc[idx2])
-        same_target_pairs = same_target_pairs.drop(idx2)
+    neg_pairs = select_pairs_fast(same_target_pairs, MAX)
+    neg_pairs["target"] = 0
 
-sel_pairs_df = pd.DataFrame(selected_rows)
-sel_pairs_df["target"] = [1, 0, 0] * int(len(sel_pairs_df) / 3)
+    sel_pairs_df = pd.concat([pos_pairs,neg_pairs])
 
-# ----------------------- Save selected pairs -----------------------
-pair_path = f"{dataset}/{exp_name}/{distance}/sel_pairs_{computed}_{MAX}_{interval}{suffix}.csv"
+pair_path = f"{dataset}/{exp_name}/{distance}/sel_pairs_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}.csv"
 sel_pairs_df.to_csv(pair_path, index=False)
 print(f"[Checkpoint] Saved selected pairs")
 
-# ----------------------- Load features and compute differences -----------------------
 del filtered_pairs_df, pos_pairs, same_target_pairs
+
+# ----------------------- Load features and compute differences -----------------------
+
 features_df = pd.read_csv(f"{dataset}/{exp_name}/ts_features.csv", index_col=0, header=[0, 1])
+
+if features == "quantile":
+    qt = QuantileTransformer(n_quantiles=100, output_distribution='normal')
+    features_df = pd.DataFrame(
+        qt.fit_transform(features_df.values),
+        index=features_df.index,
+        columns=features_df.columns
+    )
+    print(f"[Checkpoint] Quantile transformation")
 
 feature_diff_list = []
 for _, row in sel_pairs_df.iterrows():
@@ -111,18 +111,20 @@ for _, row in sel_pairs_df.iterrows():
     f2 = features_df.loc[row["adm2"]]
     diff = np.abs(f1 - f2)
     feature_diff_list.append(diff)
-
 feature_diff_df = pd.DataFrame(feature_diff_list, columns=features_df.columns)
 
 # ----------------------- Train random forest -----------------------
+sel_pairs_df["tgcc"] = sel_pairs_df["tg_adm1"] + sel_pairs_df["tg_adm2"]
+
 X = feature_diff_df.values
 y = sel_pairs_df["target"].values
+z = sel_pairs_df["tgcc"].values
 
 best_params = {
-    'n_estimators': 200,
+    'n_estimators': 100,
     'max_depth': None,
-    'min_samples_split': 10,
-    'class_weight': None
+    'min_samples_split': 5,
+    'class_weight': {0: 1, 1: 5}
 }
 
 param_grid = {
@@ -137,14 +139,22 @@ param_grid = {
 }
 
 print(f"[Checkpoint] Running Random Forest cross-validation")
-results_rf, feat_imp_rf = run_rf_cv(X, y, False, 42, param_grid, best_params, n_splits=3)
+results_rf, feat_imp_rf = run_rf_cv(X, y, z, False, 42, param_grid, best_params, n_splits=3)
 
 # ----------------------- Save results -----------------------
-results_path = f"{dataset}/{exp_name}/{distance}/results_rf_{MAX}_{interval}{suffix}.csv"
-imp_path = f"{dataset}/{exp_name}/{distance}/feat_imp_rf_{computed}_{MAX}_{interval}{suffix}.csv"
+results_path = f"{dataset}/{exp_name}/{distance}/results_rf_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}.csv"
+imp_path = f"{dataset}/{exp_name}/{distance}/feat_imp_rf_{computed}_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}.csv"
 
 pd.DataFrame(results_rf).to_csv(results_path, index=False)
-pd.DataFrame(feat_imp_rf, columns=feature_diff_df.columns).T.reset_index().to_csv(imp_path, index=False)
+
+imps = pd.DataFrame(feat_imp_rf, columns=feature_diff_df.columns).T.mean(axis=1).reset_index().sort_values(by=0, ascending=False)
+imps.columns = ["time","label","imp"]
+feature_diff_df["target"] = y
+mean_comp = feature_diff_df.groupby("target").mean().T.reset_index()
+mean_comp["diff"] = mean_comp[1]-mean_comp[0]
+mean_comp.columns = ["time","label","0", "1", "diff"]
+imps = imps.merge(mean_comp)
+imps.to_csv(imp_path, index=False)
 
 print(f"[Checkpoint] Saved RF results and feature importances")
 
