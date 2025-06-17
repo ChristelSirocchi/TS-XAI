@@ -31,7 +31,7 @@ os.makedirs(output_dir, exist_ok=True)
 
 # ----------------- Read input data -----------------
 print("[Checkpoint] Reading input CSVs...")
-all_labs = pd.read_csv(f"{dataset}/all_labs.csv", index_col=0)
+all_labs = pd.read_csv(f"{dataset}/all_labs_out.csv", index_col=0)
 adms = pd.read_csv(f"{dataset}/adm_target.csv", index_col=0)
 
 # ----------------- Preprocess admissions and labs -----------------
@@ -55,7 +55,7 @@ df_lab1 = all_labs[all_labs["HADM_ID"].isin(df_adm1["HADM_ID"])]
 df_adm1 = df_adm1.sort_values("HADM_ID").reset_index(drop=True)
 
 df_adm1.to_csv(f"{dataset}/sub_adm_target.csv")
-df_lab1.to_csv(f"{dataset}/sub_adm_lab.csv")
+df_lab1.to_csv(f"{dataset}/sub_adm_lab_out.csv")
 
 print("[Checkpoint] Filtered admissions and labs saved.")
 
@@ -94,7 +94,7 @@ df1[time_bins] = df1[time_bins].subtract(df1["label_mean"], axis=0).divide(df1["
 
 # Store and index
 df1 = df1.drop(columns=["label_mean", "label_std"]).set_index(["HADM_ID", "label"])
-df1.to_csv(f"{dataset}/{exp_name}/discrete_ts{interval_suffix}.csv")
+df1.to_csv(f"{dataset}/{exp_name}/discrete_ts{interval_suffix}_out.csv")
 
 print("[Checkpoint] Discrete normalised time series saved.")
 
@@ -112,7 +112,7 @@ df_imputed = pd.DataFrame(
     columns=df_unstacked.columns
 )
 
-df_imputed.to_csv(f"{dataset}/{exp_name}/ts_imputed{interval_suffix}.csv")
+df_imputed.to_csv(f"{dataset}/{exp_name}/ts_imputed{interval_suffix}_out.csv")
 
 # ----------------- Feature computation -----------------
 
@@ -122,7 +122,7 @@ features_df = compute_ts_metrics_window(df_lab1)
 features_df.set_index(["HADM_ID", "label"], inplace=True)
 features_df = features_df.unstack(level=-1)
 
-features_df.to_csv(f"{dataset}/{exp_name}/ts_features.csv")
+features_df.to_csv(f"{dataset}/{exp_name}/ts_features_out.csv")
 
 print("[Checkpoint] Temporal features computed.")
 

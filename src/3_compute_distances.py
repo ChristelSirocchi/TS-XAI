@@ -32,8 +32,9 @@ adms = pd.read_csv(f"{dataset}/adm_target.csv")
 if DEPT != "ALL":
     adms = adms[adms["ADMISSION_TYPE"] == DEPT]
 
+"""
 # Load discrete time series
-df = pd.read_csv(f"{dataset}/{exp_name}/discrete_ts{interval_suffix}.csv", index_col=[0, 1])
+df = pd.read_csv(f"{dataset}/{exp_name}/discrete_ts{interval_suffix}_out.csv", index_col=[0, 1])
 
 print(f"[Checkpoint] Data imported.")
 
@@ -77,17 +78,17 @@ with np.errstate(divide='ignore', invalid='ignore'):
 os.makedirs(f"{dataset}/{exp_name}/{distance}", exist_ok=True)
 
 # Save averaged distances
-np.savez_compressed(f"{dataset}/{exp_name}/{distance}/mean_distances{interval_suffix}.npz", mean=avg_dist)
+np.savez_compressed(f"{dataset}/{exp_name}/{distance}/mean_distances{interval_suffix}_out.npz", mean=avg_dist)
 
 print(f"[Checkpoint] Mean distance over available labs saved.")
-
+"""
 # --- Compute distances on imputed data --- #
 
 # Load imputed time series (wide format: admission x lab:time)
-df_imputed = pd.read_csv(f"{dataset}/{exp_name}/ts_imputed{interval_suffix}.csv", index_col=0, header=[0, 1])
+df_imputed = pd.read_csv(f"{dataset}/{exp_name}/ts_imputed{interval_suffix}_out.csv", index_col=0, header=[0, 1])
 
 # Compute full pairwise distances on imputed time series
 dists = pdist(df_imputed.values.astype(np.float32), metric=distance)
-np.savez_compressed(f"{dataset}/{exp_name}/{distance}/imputed_distances{interval_suffix}.npz", mean=dists)
+np.savez_compressed(f"{dataset}/{exp_name}/{distance}/imputed_distances{interval_suffix}_out.npz", mean=dists)
 
 print(f"[Checkpoint] Distance over all imputed labs saved.")

@@ -185,4 +185,13 @@ labs_df[labs_df["HADM_ID"].isin(last_stay["HADM_ID"])].to_csv(f"{dataset}_last/a
 
 print(f"[Checkpoint] Data saved for last admissions.")
 
+# ------------------ Extra - remove outliers ------------------
+
+all_labs = pd.read_csv(f"{dataset}/all_labs.csv", index_col=0)
+adms = pd.read_csv(f"{dataset}/adm_target.csv", index_col=0)
+task_dict = adms[["HADM_ID", TASK]].set_index("HADM_ID")[TASK].to_dict()
+all_labs["target"] = all_labs["HADM_ID"].map(task_dict)
+all_labs['z'] = all_labs.groupby(['label','target'])['VALUENUM'].transform(lambda x: np.abs((x - x.mean()) / x.std(ddof=0)))
+all_labs = all_labs[all_labs['z'] < 6]
+all_labs.reset_index(drop = True).to_csv(f"{dataset}_last/all_labs_out.csv")
 

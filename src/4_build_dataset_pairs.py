@@ -45,7 +45,7 @@ adm_ids = adms["HADM_ID"].unique()
 task_dict = adms[["HADM_ID", TASK]].set_index("HADM_ID")[TASK].to_dict()
 
 # ----------------------- Load pairwise distances -----------------------
-dist_path = f"{dataset}/{exp_name}/{distance}/{computed}_distances{interval_suffix}.npz"
+dist_path = f"{dataset}/{exp_name}/{distance}/{computed}_distances{interval_suffix}_out.npz"
 
 print(f"[Checkpoint] Loading distances from {dist_path}")
 dists = np.load(dist_path)["mean"].astype(np.float32)
@@ -86,7 +86,7 @@ else:
 
     sel_pairs_df = pd.concat([pos_pairs,neg_pairs])
 
-pair_path = f"{dataset}/{exp_name}/{distance}/sel_pairs_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}.csv"
+pair_path = f"{dataset}/{exp_name}/{distance}/sel_pairs_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}_out.csv"
 sel_pairs_df.to_csv(pair_path, index=False)
 print(f"[Checkpoint] Saved selected pairs")
 
@@ -94,7 +94,7 @@ del filtered_pairs_df, pos_pairs, same_target_pairs
 
 # ----------------------- Load features and compute differences -----------------------
 
-features_df = pd.read_csv(f"{dataset}/{exp_name}/ts_features.csv", index_col=0, header=[0, 1])
+features_df = pd.read_csv(f"{dataset}/{exp_name}/ts_features_out.csv", index_col=0, header=[0, 1])
 
 if features == "quantile":
     qt = QuantileTransformer(n_quantiles=100, output_distribution='normal')
@@ -142,8 +142,8 @@ print(f"[Checkpoint] Running Random Forest cross-validation")
 results_rf, feat_imp_rf = run_rf_cv(X, y, z, False, 42, param_grid, best_params, n_splits=3)
 
 # ----------------------- Save results -----------------------
-results_path = f"{dataset}/{exp_name}/{distance}/results_rf_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}.csv"
-imp_path = f"{dataset}/{exp_name}/{distance}/feat_imp_rf_{computed}_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}.csv"
+results_path = f"{dataset}/{exp_name}/{distance}/results_rf_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}_out.csv"
+imp_path = f"{dataset}/{exp_name}/{distance}/feat_imp_rf_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}_out.csv"
 
 pd.DataFrame(results_rf).to_csv(results_path, index=False)
 
