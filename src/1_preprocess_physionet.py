@@ -1,14 +1,16 @@
 import os
 import pandas as pd
+import numpy as np
 
 # Define dataset name (used in file naming)
 dataset = "physionet"
+TASK = "HOSPITAL_EXPIRE_FLAG"
 
 os.makedirs(f"{dataset}", exist_ok=True)
 
 # Define the path to raw MIMIC-III CSV files
 RAW_DATA_PATH = '../physionet2012/data'  # <-- modify as needed
-
+TASK = "HOSPITAL_EXPIRE_FLAG"
 # dataset source https://www.physionet.org/content/challenge-2012/1.0.0/
 
 
@@ -43,6 +45,7 @@ icus["ADMISSION_TYPE"] = icus["ADMISSION_TYPE"].astype(int)
 labs_df = labs_df[labs_df["TIME"].str.contains(":")]
 labs_df[['hour', 'minute']] = labs_df['TIME'].str.split(":", expand=True).astype(int)
 labs_df['minute'] = labs_df['hour'] * 60 + labs_df['minute']
+labs_df.loc[labs_df["TIME"]=="48:00","hour"] = 47 # assigned to the previous hour
 
 # retain lab variables only
 labs_df = labs_df[["HADM_ID", "label", "minute", "hour", "VALUENUM"]]
@@ -55,6 +58,9 @@ lab_list = [
 ]
 labs_df = labs_df[labs_df["label"].isin(lab_list)]
 labs_df = labs_df[labs_df["minute"] >= 0]
+# neg value indicates missingness.
+labs_df = labs_df[labs_df["VALUENUM"]>=0]
+labs_df["HADM_ID"] = labs_df["HADM_ID"].astype("int")
 
 # Save processed lab records
 labs_df.to_csv(f"{dataset}/all_labs.csv", index=False)
@@ -73,19 +79,17 @@ outcomes['LONG_STAY'] = (outcomes["LOS_DAYS"] > 8).astype(int)
 
 adm_data = outcomes.merge(icus, on="HADM_ID", how="inner")
 adm_data = adm_data[adm_data["HADM_ID"].isin(labs_df["HADM_ID"].unique())]
-adm_data.to_csv(f"{dataset}/adm_target.csv", index=False)
+adm_data.reset_index(drop=True).to_csv(f"{dataset}/adm_target.csv")
 
 print(f"[Checkpoint] Admission data processed.")
 
 # ------------------ Extra - remove outliers ------------------
-
-all_labs = pd.read_csv(f"{dataset}/all_labs.csv", index_col=0)
-adms = pd.read_csv(f"{dataset}/adm_target.csv", index_col=0)
-task_dict = adms[["HADM_ID", TASK]].set_index("HADM_ID")[TASK].to_dict()
-all_labs["target"] = all_labs["HADM_ID"].map(task_dict)
-all_labs['z'] = all_labs.groupby(['label','target'])['VALUENUM'].transform(lambda x: np.abs((x - x.mean()) / x.std(ddof=0)))
-all_labs = all_labs[all_labs['z'] < 6]
-all_labs.reset_index(drop = True).to_csv(f"{dataset}/all_labs_out.csv")
+#labs_df = labs_df.groupby(["HADM_ID", "label"]).filter(lambda x: len(x) > 5) # consider time series longer than 5 time points
+task_dict = adm_data[["HADM_ID", TASK]].set_index("HADM_ID")[TASK].to_dict()
+labs_df["target"] = labs_df["HADM_ID"].map(task_dict)
+labs_df['z'] = labs_df.groupby(['label','target'])['VALUENUM'].transform(lambda x: np.abs((x - x.mean()) / x.std(ddof=0)))
+labs_df = labs_df[labs_df['z'] < 5]
+labs_df.reset_index(drop = True).to_csv(f"{dataset}/all_labs_out.csv")
 
 
 

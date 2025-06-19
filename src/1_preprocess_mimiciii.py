@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 # Define dataset name (used in file naming)
 dataset = "mimiciii"
+TASK = "HOSPITAL_EXPIRE_FLAG"
 
 os.makedirs(f"{dataset}_all", exist_ok=True)
 os.makedirs(f"{dataset}_last", exist_ok=True)
@@ -53,7 +54,6 @@ itemids = {
     "RR": [618, 615, 220210, 224690],
     "SBP": [51, 442, 455, 6701, 220179, 220050],
     "DBP": [8368, 8440, 8441, 8555, 220180, 220051],
-    "EtCO2": [1817, 228640],
     "Temp_F": [223761, 678],
     "Temp_C": [223762, 676],
     "TGCS": [198, 226755, 227013],
@@ -61,10 +61,17 @@ itemids = {
     "FiO2": [2981, 3420, 3422, 223835],
     "Glucose": [807, 811, 1529, 3745, 3744, 225664, 220621, 226537],
     "pH": [780, 860, 1126, 1673, 3839, 4202, 4753, 6003, 220274, 220734, 223830, 228243],
-    "urine": [
-        43647, 43053, 43171, 43173, 43333, 43347, 43348, 43355, 43365, 43373, 43374, 43379,
-        43380, 43431, 43519, 43522, 43537, 43576, 43583, 43589, 43638, 43654, 43811, 43812,
-        43856, 44706, 45304, 227519]
+    "Urine": [
+            40405, 40428, 41857, 42001, 42362, 42676, 43171, 43173, 42042, 42068, 42111,
+            42119, 40715, 40056, 40061, 40085, 40094, 40096, 43897, 43931, 43966, 44080,
+            44103, 44132, 44237, 43348, 43355, 43365, 43372, 43373, 43374, 43379, 43380,
+            43431, 43462, 43522, 44706, 44911, 44925, 42810, 42859, 43093, 44325, 44506,
+            43856, 45304, 46532, 46578, 46658, 46748, 40651, 40055, 40057, 40065, 40069,
+            44752, 44824, 44837, 43576, 43589, 43633, 43811, 43812, 46177, 46727, 46804,
+            43987, 44051, 44253, 44278, 46180, 45804, 45841, 45927, 42592, 42666, 42765,
+            42892, 43053, 43057, 42130, 41922, 40473, 43333, 43347, 44684, 44834, 43638,
+            43654, 43519, 43537, 42366, 45991, 43583, 43647
+        ]
 }
 
 # Create reverse mapping and full ID list
@@ -100,7 +107,7 @@ print(f"[Checkpoint] CHARTEVENTS data extracted.")
 n_rows = 4349219
 n_chunks = n_rows // chunksize + int(n_rows % chunksize != 0)
 
-uo_itemids = itemids.get("urine", [])  # urine itemids from OUTPUTEVENTS
+uo_itemids = itemids.get("Urine", [])  # urine itemids from OUTPUTEVENTS
 
 df2 = []
 for chunk in tqdm(pd.read_csv(outputevents_path,
@@ -126,7 +133,7 @@ df_labs["CHARTTIME"] = pd.to_datetime(df_labs["CHARTTIME"])
 
 # Merge with admission time and filter to first 48 hours
 df_labs = df_labs.merge(outcomes[["HADM_ID", "ADMITTIME", "ADMISSION_TYPE"]], on="HADM_ID")
-df_labs = df_labs[(df_labs["CHARTTIME"] - df_labs["ADMITTIME"]).dt.total_seconds() / 3600 <= 48]
+df_labs = df_labs[(df_labs["CHARTTIME"] - df_labs["ADMITTIME"]).dt.total_seconds() / 3600 < 48]
 
 # Compute relative time in minutes and hours
 df_labs["minute"] = ((df_labs["CHARTTIME"] - df_labs["ADMITTIME"]).dt.total_seconds() / 60).astype("int")
@@ -136,7 +143,7 @@ df_labs["hour"] = (df_labs["minute"] / 60).astype("int")
 df_labs["label"] = df_labs["ITEMID"].map(itemids_inv)
 
 # Postprocess: fix specific value types (urine, temperature, TGCS, etc.)
-mask = df_labs["label"] == "urine"
+mask = df_labs["label"] == "Urine"
 df_labs.loc[mask, "VALUENUM"] = df_labs.loc[mask, "VALUE"]
 
 # Convert Fahrenheit to Celsius
@@ -187,11 +194,12 @@ print(f"[Checkpoint] Data saved for last admissions.")
 
 # ------------------ Extra - remove outliers ------------------
 
-all_labs = pd.read_csv(f"{dataset}/all_labs.csv", index_col=0)
-adms = pd.read_csv(f"{dataset}/adm_target.csv", index_col=0)
+labs_df = pd.read_csv(f"{dataset}_last/all_labs.csv", index_col=0)
+adms = pd.read_csv(f"{dataset}_last/adm_target.csv", index_col=0)
+#labs_df = labs_df.groupby(["HADM_ID", "label"]).filter(lambda x: len(x) > 5)
 task_dict = adms[["HADM_ID", TASK]].set_index("HADM_ID")[TASK].to_dict()
-all_labs["target"] = all_labs["HADM_ID"].map(task_dict)
-all_labs['z'] = all_labs.groupby(['label','target'])['VALUENUM'].transform(lambda x: np.abs((x - x.mean()) / x.std(ddof=0)))
-all_labs = all_labs[all_labs['z'] < 6]
-all_labs.reset_index(drop = True).to_csv(f"{dataset}_last/all_labs_out.csv")
+labs_df["target"] = labs_df["HADM_ID"].map(task_dict)
+labs_df['z'] = labs_df.groupby(['label','target'])['VALUENUM'].transform(lambda x: np.abs((x - x.mean()) / x.std(ddof=0)))
+labs_df = labs_df[labs_df['z'] < 5]
+labs_df.reset_index(drop = True).to_csv(f"{dataset}_last/all_labs_out.csv")
 

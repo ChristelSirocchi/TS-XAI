@@ -114,40 +114,40 @@ for _, row in sel_pairs_df.iterrows():
 feature_diff_df = pd.DataFrame(feature_diff_list, columns=features_df.columns)
 
 # ----------------------- Train random forest -----------------------
+feature_diff_df = feature_diff_df.reset_index(drop=True)
+sel_pairs_df = sel_pairs_df.reset_index(drop=True)
 sel_pairs_df["tgcc"] = sel_pairs_df["tg_adm1"] + sel_pairs_df["tg_adm2"]
 
-X = feature_diff_df.values
-y = sel_pairs_df["target"].values
-z = sel_pairs_df["tgcc"].values
+X = feature_diff_df
+y = sel_pairs_df["target"]
+z = sel_pairs_df["tgcc"]
 
 best_params = {
     'n_estimators': 100,
-    'max_depth': None,
-    'min_samples_split': 5,
-    'class_weight': {0: 1, 1: 5}
+    'max_depth': 10,
+    'learning_rate': 0.01,
+    'subsample': 0.8,
+    'colsample_bytree': 0.8,
 }
 
 param_grid = {
     'n_estimators': [100, 200],
-    'max_depth': [10, None],
-    'min_samples_split': [5, 10],
-    'class_weight': [
-        None,
-        {0: 0.5, 1: 1},
-        {0: 0.5, 1: 2}
-    ]
+    'max_depth': [5, 10],
+    'learning_rate': [0.01, 0.1],
+    'subsample': [0.8],
+    'colsample_bytree': [0.8],
 }
 
-print(f"[Checkpoint] Running Random Forest cross-validation")
-results_rf, feat_imp_rf = run_rf_cv(X, y, z, False, 42, param_grid, best_params, n_splits=3)
+print(f"[Checkpoint] Running XGBoost cross-validation")
+results, feat_imp = run_xgb_cv(X, y, z, False, 42, param_grid, best_params, n_splits=5)
 
 # ----------------------- Save results -----------------------
-results_path = f"{dataset}/{exp_name}/{distance}/results_rf_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}_out.csv"
-imp_path = f"{dataset}/{exp_name}/{distance}/feat_imp_rf_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}_out.csv"
+results_path = f"{dataset}/{exp_name}/{distance}/results_xgb_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}_out.csv"
+imp_path = f"{dataset}/{exp_name}/{distance}/feat_imp_xgb_{computed}_{MAX}_{pairs}_{features}{interval_suffix}{suffix}_out.csv"
 
-pd.DataFrame(results_rf).to_csv(results_path, index=False)
+pd.DataFrame(results).to_csv(results_path, index=False)
 
-imps = pd.DataFrame(feat_imp_rf, columns=feature_diff_df.columns).T.mean(axis=1).reset_index().sort_values(by=0, ascending=False)
+imps = pd.DataFrame(feat_imp, columns=feature_diff_df.columns).T.mean(axis=1).reset_index().sort_values(by=0, ascending=False)
 imps.columns = ["time","label","imp"]
 feature_diff_df["target"] = y
 mean_comp = feature_diff_df.groupby("target").mean().T.reset_index()
@@ -156,5 +156,7 @@ mean_comp.columns = ["time","label","0", "1", "diff"]
 imps = imps.merge(mean_comp)
 imps.to_csv(imp_path, index=False)
 
-print(f"[Checkpoint] Saved RF results and feature importances")
+print(f"[Checkpoint] Saved XGB results and feature importances")
+
+
 

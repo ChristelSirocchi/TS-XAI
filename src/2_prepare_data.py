@@ -43,16 +43,40 @@ if DEPT == "ALL":
 else:
     df_adm1 = adms[adms["ADMISSION_TYPE"] == DEPT]
 
-df_lab1 = all_labs[all_labs["HADM_ID"].isin(df_adm1["HADM_ID"])].copy()
+df_lab1 = all_labs.loc[all_labs["HADM_ID"].isin(df_adm1["HADM_ID"])]
+
+# remove very infrequent labs
+#ggl = (df_lab1.groupby(["label","HADM_ID"]).size()>0).astype(int).unstack(level=-1).fillna(0).T
+#ggl = ggl.sum(axis=0)/len(ggl)
+#freq_labs = ggl[ggl>0.05].index.astype(str)
+#df_lab1 = df_lab1.loc[df_lab1["label"].isin(freq_labs)]
+
+#
+
+#gg = df_lab1.groupby(["HADM_ID", "label"]).size().reset_index().groupby("HADM_ID").size().sort_values(ascending=False)
+#freq_adms = gg[gg >= len(freq_labs) * 0.25].index.astype(int)
 
 nlabs = all_labs["label"].nunique()
 gg = df_lab1.groupby(["HADM_ID", "label"]).size().reset_index().groupby("HADM_ID").size().sort_values(ascending=False)
 freq_adms = gg[gg >= nlabs * 0.50].index.astype(int)
 
-df_adm1 = df_adm1[df_adm1["HADM_ID"].isin(freq_adms)]
-df_lab1 = all_labs[all_labs["HADM_ID"].isin(df_adm1["HADM_ID"])]
+df_adm1 = df_adm1.loc[df_adm1["HADM_ID"].isin(freq_adms)]
+df_lab1 = df_lab1.loc[df_lab1["HADM_ID"].isin(df_adm1["HADM_ID"])]
 
 df_adm1 = df_adm1.sort_values("HADM_ID").reset_index(drop=True)
+
+print("[Checkpoint] Making urine feature cumulative...")
+
+df_lab1 = df_lab1.sort_values(by=['HADM_ID', 'label', 'minute'])
+def transform_urine(group):
+    group = group.copy()
+    group['VALUENUM'] = group['VALUENUM'].cumsum()
+    group['VALUENUM'] = group['VALUENUM'] - group['VALUENUM'].iloc[0]
+    return group
+
+df_lab1 = df_lab1.groupby(['HADM_ID', 'label'], group_keys=False).apply(
+    lambda g: transform_urine(g) if g.name[1] == 'Urine' else g
+)
 
 df_adm1.to_csv(f"{dataset}/sub_adm_target.csv")
 df_lab1.to_csv(f"{dataset}/sub_adm_lab_out.csv")
@@ -89,7 +113,7 @@ df1 = (
 )
 
 # Normalise values
-time_bins = list(range(0, 49, interval))
+time_bins = list(range(0, 48, interval))
 df1[time_bins] = df1[time_bins].subtract(df1["label_mean"], axis=0).divide(df1["label_std"], axis=0)
 
 # Store and index
@@ -125,4 +149,17 @@ features_df = features_df.unstack(level=-1)
 features_df.to_csv(f"{dataset}/{exp_name}/ts_features_out.csv")
 
 print("[Checkpoint] Temporal features computed.")
+
+# ----------------- Train XGBoost on raw features -----------------
+
+#X = features_df.reset_index(drop=True)
+#y = adms.set_index("HADM_ID").reindex(features_df.index)[TASK].reset_index(drop=True)
+
+#results_rf_, feat_imp_rf_ = run_xgb_cv(X, y, y, False, 42, param_grid, best_params, n_splits=5, constrained=False)
+
+#imp_raw = pd.DataFrame(feat_imp_rf_, columns=features_df.columns).T.mean(axis=1).reset_index().sort_values(by=0, ascending=False)
+#imp_raw.columns = ["time","label","imp"]
+#imp_raw.to_csv(f"{dataset}/{exp_name}/feat_imp_xgb_og_data.csv", index=False)
+#pd.DataFrame(results_rf_).to_csv(f"{dataset}/{exp_name}/results_xgb_og_data.csv", index=False)
+
 

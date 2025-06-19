@@ -12,6 +12,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy.spatial.distance import pdist, squareform
 from collections import defaultdict
 from tqdm import tqdm
+from xgboost import XGBClassifier
 
 # function to train random forest
 def run_dt_cv(X, y, GRID=True, SEED=42, param_grid=None, best_params=None, n_splits=5):
@@ -97,6 +98,79 @@ def run_rf_cv(X, y, z=None, GRID=True, SEED=42, param_grid=None, best_params=Non
             print("Best parameters:", dt.best_params_)
         else:
             best_dt = RandomForestClassifier(**best_params, random_state=SEED)
+            best_dt.fit(x_train, y_train)
+
+        pred = best_dt.predict(x_test)
+        prob = best_dt.predict_proba(x_test)[:, 1]
+
+        metrics = {
+            'fold': i + 1,
+            'roc_auc': roc_auc_score(y_test, prob),
+            'pr_auc': auc(*precision_recall_curve(y_test, prob)[1::-1]),
+            'recall': recall_score(y_test, pred),
+            'precision': precision_score(y_test, pred),
+            'balanced_accuracy': balanced_accuracy_score(y_test, pred),
+            'f1': f1_score(y_test, pred)
+        }
+        results.append(metrics)
+        print(metrics)
+        feat_imp.append(best_dt.feature_importances_)
+
+    return results, feat_imp
+
+# function to train random forest
+def run_xgb_cv(X, y, z=None, GRID=True, SEED=42, param_grid=None, best_params=None, n_splits=5, constrained=True):
+    if z is None:
+        z = y
+
+    n_features = X.shape[1]
+    if constrained:
+        monotone_constraints = "(" + ",".join(["1"] * n_features) + ")"
+    else:
+        monotone_constraints = "(" + ",".join(["0"] * n_features) + ")"
+
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=SEED)
+    results = []
+    feat_imp = []
+
+    for i, (train_idx, test_idx) in enumerate(skf.split(X, z)):
+        print(f"Fold {i + 1}")
+
+        x_train, x_test = X.loc[train_idx], X.loc[test_idx]
+        y_train, y_test = y.loc[train_idx], y.loc[test_idx]
+
+        # Oversample minority class
+        #oversample = RandomOverSampler(sampling_strategy='minority', random_state=SEED)
+        #x_train, y_train = oversample.fit_resample(x_train, y_train)
+        
+        undersample = RandomUnderSampler(sampling_strategy='majority', random_state=SEED)
+        x_train, y_train = undersample.fit_resample(x_train, y_train)
+
+        if GRID:
+            xgb_base = XGBClassifier(
+                monotone_constraints=monotone_constraints,
+                eval_metric='logloss',
+                missing=np.nan,
+                random_state=SEED
+            )
+            grid_search = GridSearchCV(
+                estimator=xgb_base,
+                param_grid=param_grid,
+                scoring='roc_auc',
+                cv=3,
+                n_jobs=-1,
+                verbose=1
+            )   
+            grid_search.fit(x_train, y_train)
+            best_dt = grid_search.best_estimator_
+            print("Best parameters:", grid_search.best_params_)
+        else:
+            best_dt = XGBClassifier(
+                **best_params,
+                monotone_constraints=monotone_constraints,
+                random_state=SEED,
+                eval_metric='logloss'
+            )
             best_dt.fit(x_train, y_train)
 
         pred = best_dt.predict(x_test)
@@ -238,10 +312,10 @@ def compute_ts_stats(times, values):
             "min": minimum,
             "max": maximum,
             "range": value_range,
-            "slope": slope,
-            "intercept": intercept,
+            "slope": slope
+            #"intercept": intercept,
             #"num_peaks": num_peaks,
-            "cv": std / mean if mean != 0 else np.nan,
+            #"cv": std / mean if mean != 0 else np.nan,
         }
 
 def compute_ts_metrics_window(sub_df_lab):

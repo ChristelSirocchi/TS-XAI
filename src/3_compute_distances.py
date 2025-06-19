@@ -5,6 +5,7 @@ import numpy as np
 import os
 from scipy.spatial.distance import pdist
 from sklearn.metrics import silhouette_score
+import dtaidistance
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser()
@@ -24,6 +25,9 @@ interval = args.interval
 # Construct experiment name and suffix
 exp_name = f"{DEPT}_{TASK}"
 interval_suffix = f"_{interval}" if interval != 1 else ""
+
+output_dir = os.path.join(dataset, exp_name, distance)
+os.makedirs(output_dir, exist_ok=True)
 
 print(f"Dataset: {dataset}, Experiment: {exp_name}, Distance: {distance}, Task: {TASK}")
 
@@ -87,8 +91,12 @@ print(f"[Checkpoint] Mean distance over available labs saved.")
 # Load imputed time series (wide format: admission x lab:time)
 df_imputed = pd.read_csv(f"{dataset}/{exp_name}/ts_imputed{interval_suffix}_out.csv", index_col=0, header=[0, 1])
 
-# Compute full pairwise distances on imputed time series
-dists = pdist(df_imputed.values.astype(np.float32), metric=distance)
-np.savez_compressed(f"{dataset}/{exp_name}/{distance}/imputed_distances{interval_suffix}_out.npz", mean=dists)
+if distance == "dtw":
+    dists = dtaidistance.dtw.distance_matrix_fast(df_imputed.values, compact=True, only_triu=True, window=6, max_dist=None, max_step=4, psi=1,
+                                                use_pruning=True, inner_dist='squared euclidean', use_c=True)
+    np.savez_compressed(f"{dataset}/{exp_name}/{distance}/imputed_distances{interval_suffix}_out.npz", mean=dists)
+else:
+    dists = pdist(df_imputed.values.astype(np.float32), metric=distance)
+    np.savez_compressed(f"{dataset}/{exp_name}/{distance}/imputed_distances{interval_suffix}_out.npz", mean=dists)
 
 print(f"[Checkpoint] Distance over all imputed labs saved.")
