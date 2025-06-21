@@ -1,4 +1,4 @@
-# TS-XAI: Interpretable Tree-Based Modelling of Borderline Clinical Cases
+# Explaining medical time series classification through boundary-aware feature analysis
 
 This repository contains code to identify key discriminative features in borderline ICU cases using interpretable time series summaries and constrained tree ensemble models. The approach focuses on admissions with highly similar temporal profiles but divergent outcomes, providing interpretable insights to support clinical decision-making and guideline refinement.
 
