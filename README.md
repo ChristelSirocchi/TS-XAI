@@ -26,8 +26,3 @@ This repository contains code to identify key discriminative features in borderl
 
 - Python ≥ 3.8  
 - Dependencies: `pandas`, `numpy`, `scikit-learn`, `xgboost`
-
-Install required packages:
-
-```bash
-pip install -r requirements.txt
